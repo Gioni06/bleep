@@ -1,0 +1,4 @@
+#custom-interval { margin-left: 11px; }
+#custom-interval.counting { color: #a6e3a1; }
+#custom-interval.paused { color: #f9e2af; }
+#custom-interval.beep { color: #f38ba8; font-weight: bold; }

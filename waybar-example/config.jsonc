@@ -1,0 +1,10 @@
+{
+  "custom/interval": {
+      "exec": "~/.config/waybar/scripts/interval-wrapper.sh",
+      "return-type": "json",
+      "on-click": "pkill -SIGUSR1 -f 'bleep.*-json'",
+      "on-click-right": "ghostty -e ~/.config/waybar/scripts/interval-config.sh",
+      "format": "{}",
+      "tooltip": true
+  }
+}

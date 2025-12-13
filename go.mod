@@ -1,4 +1,4 @@
-module go-interval
+module github.com/Gioni06/bleep
 
 go 1.24.0
 
