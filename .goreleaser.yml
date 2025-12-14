@@ -32,14 +32,12 @@ builds:
         goarch: amd64
         env:
           - CGO_ENABLED=1
-          - CC=zig cc -target x86_64-linux-gnu
-          - CXX=zig c++ -target x86_64-linux-gnu
       - goos: linux
         goarch: arm64
         env:
           - CGO_ENABLED=1
-          - CC=zig cc -target aarch64-linux-gnu
-          - CXX=zig c++ -target aarch64-linux-gnu
+          - CC=aarch64-linux-gnu-gcc
+          - PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
       - goos: darwin
         goarch: amd64
         env:

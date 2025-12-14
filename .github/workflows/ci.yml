@@ -85,15 +85,20 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Set up Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.13.0
+      - name: Set up ARM64 cross-compilation
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/deb http/deb [arch=amd64] http/g' /etc/apt/sources.list.d/*.list || true
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -sc) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -sc)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y \
+            libasound2-dev:amd64 \
+            libasound2-dev:arm64 \
+            gcc-aarch64-linux-gnu
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
