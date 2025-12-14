@@ -1,6 +1,12 @@
 
 # GoReleaser configuration file
 # Documentation at https://goreleaser.com
+#
+# Note: This project uses CGO (required by the audio library).
+# Cross-compiling CGO code for macOS from Linux is complex and requires macOS SDK.
+# This configuration only builds for Linux. macOS users can build from source.
+#
+# For local testing: goreleaser build --snapshot --clean --single-target
 version: 2
 
 before:
@@ -13,22 +19,17 @@ builds:
     main: .
     binary: bleep
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
-      - windows
-      - darwin
     goarch:
       - amd64
-      - arm64
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
 
 archives:
   - id: default
-    builds:
-      - bleep
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_
@@ -36,9 +37,10 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end -}}
-    format_overrides:
-      - goos: windows
-        format: zip
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
 
 checksum:
   name_template: 'checksums.txt'
