@@ -1,8 +1,10 @@
-
 version: "2"
+
 run:
   go: "1.24"
+  timeout: 5m
   modules-download-mode: readonly
+
 linters:
   enable:
     - bodyclose
@@ -20,7 +22,7 @@ linters:
       threshold: 100
     errcheck:
       check-type-assertions: true
-      check-blank: false # Allow _ = expr() for explicitly ignored errors
+      check-blank: false
     goconst:
       min-len: 3
       min-occurrences: 3
@@ -83,9 +85,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
+
 formatters:
   enable:
     - gofmt
@@ -99,3 +99,7 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
