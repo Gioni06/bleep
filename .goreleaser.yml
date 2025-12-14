@@ -9,9 +9,9 @@ before:
     - go mod verify
 
 builds:
-  - id: go-interval
+  - id: bleep
     main: .
-    binary: go-interval
+    binary: bleep
     env:
       - CGO_ENABLED=0
     goos:
@@ -28,7 +28,7 @@ builds:
 archives:
   - id: default
     builds:
-      - go-interval
+      - bleep
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_

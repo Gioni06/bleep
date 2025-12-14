@@ -369,7 +369,7 @@ func main() {
 
 	// Handle version flag
 	if *showVersion {
-		fmt.Printf("go-interval version %s\n", version)
+		fmt.Println(version)
 		os.Exit(0)
 	}
 
