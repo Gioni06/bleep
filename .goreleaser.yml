@@ -2,9 +2,9 @@
 # GoReleaser configuration file
 # Documentation at https://goreleaser.com
 #
-# Note: This project uses CGO (required by the audio library).
-# Cross-compiling CGO code for macOS from Linux is complex and requires macOS SDK.
-# This configuration only builds for Linux. macOS users can build from source.
+# Multi-platform build configuration:
+# - Linux: CGO enabled with Zig for cross-compilation (ALSA required)
+# - Darwin/macOS: CGO disabled (oto/v3 doesn't require CGO on macOS)
 #
 # For local testing: goreleaser build --snapshot --clean --single-target
 version: 2
@@ -18,12 +18,36 @@ builds:
   - id: bleep
     main: .
     binary: bleep
-    env:
-      - CGO_ENABLED=1
     goos:
       - linux
+      - darwin
     goarch:
       - amd64
+      - arm64
+    # Platform-specific overrides
+    # Note: macOS (darwin) doesn't require CGO for oto/v3
+    # Linux requires CGO for ALSA support
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=zig cc -target x86_64-linux-gnu
+          - CXX=zig c++ -target x86_64-linux-gnu
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=zig cc -target aarch64-linux-gnu
+          - CXX=zig c++ -target aarch64-linux-gnu
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CGO_ENABLED=0
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CGO_ENABLED=0
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
