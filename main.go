@@ -23,6 +23,13 @@ var beepMP3 []byte
 
 var audioContext *oto.Context
 
+// version is set via ldflags at build time
+var version = "dev"
+
+// beepFunc is the function called to play a beep sound.
+// It can be replaced in tests to prevent actual sound playback.
+var beepFunc = playBeepImpl
+
 func initAudio() error {
 	// Decode the MP3 data to get audio format info
 	reader := bytes.NewReader(beepMP3)
@@ -48,7 +55,14 @@ func initAudio() error {
 	return nil
 }
 
+// playBeep calls beepFunc to play a beep sound.
+// This indirection allows tests to replace beepFunc with a no-op.
 func playBeep() {
+	beepFunc()
+}
+
+// playBeepImpl is the actual implementation that plays the beep sound.
+func playBeepImpl() {
 	// Play the beep asynchronously so it doesn't block the timer
 	go func() {
 		// Decode the MP3 data each time (creates a fresh reader)
@@ -110,6 +124,238 @@ type WaybarOutput struct {
 	Remaining int    `json:"remaining"`
 }
 
+// OutputMode represents the output format mode
+type OutputMode int
+
+const (
+	ModeDefault OutputMode = iota
+	ModeVerbose
+	ModeJSON
+	ModeWatch
+)
+
+// TimerState represents the current state of the timer
+type TimerState struct {
+	Intervals     []time.Duration
+	MinutesList   []int
+	SecondsList   []int
+	IntervalIndex int
+	BeepCount     int
+	Paused        bool
+	PausedAt      time.Duration
+	NextBeep      time.Time
+}
+
+// NewTimerState creates a new timer state with the given intervals
+func NewTimerState(intervals []time.Duration, minutesList, secondsList []int, startPaused bool) *TimerState {
+	ts := &TimerState{
+		Intervals:     intervals,
+		MinutesList:   minutesList,
+		SecondsList:   secondsList,
+		IntervalIndex: 0,
+		BeepCount:     0,
+		Paused:        startPaused,
+		PausedAt:      0,
+	}
+	if startPaused {
+		ts.PausedAt = intervals[0]
+	} else {
+		ts.NextBeep = time.Now().Add(intervals[0])
+	}
+	return ts
+}
+
+// CurrentInterval returns the current interval duration
+func (ts *TimerState) CurrentInterval() time.Duration {
+	return ts.Intervals[ts.IntervalIndex]
+}
+
+// AdvanceInterval moves to the next interval in the rotation
+func (ts *TimerState) AdvanceInterval() {
+	ts.IntervalIndex = (ts.IntervalIndex + 1) % len(ts.Intervals)
+}
+
+// TogglePause toggles the pause state and returns the new pause state
+func (ts *TimerState) TogglePause() bool {
+	if ts.Paused {
+		// Resume: set nextBeep based on remaining time
+		ts.Paused = false
+		ts.NextBeep = time.Now().Add(ts.PausedAt)
+	} else {
+		// Pause: save remaining time
+		ts.Paused = true
+		ts.PausedAt = time.Until(ts.NextBeep)
+		if ts.PausedAt < 0 {
+			ts.PausedAt = 0
+		}
+	}
+	return ts.Paused
+}
+
+// Remaining returns the time remaining until next beep
+func (ts *TimerState) Remaining() time.Duration {
+	if ts.Paused {
+		return ts.PausedAt
+	}
+	return time.Until(ts.NextBeep)
+}
+
+// TriggerBeep increments beep count, advances interval, and resets timer
+func (ts *TimerState) TriggerBeep() {
+	ts.BeepCount++
+	ts.AdvanceInterval()
+	ts.NextBeep = time.Now().Add(ts.CurrentInterval())
+}
+
+// ResetTimer resets the current interval without advancing
+func (ts *TimerState) ResetTimer() {
+	ts.NextBeep = time.Now().Add(ts.CurrentInterval())
+}
+
+// OutputConfig holds configuration for output formatting
+type OutputConfig struct {
+	Mode          OutputMode
+	MinutesList   []int
+	SecondsList   []int
+	IntervalCount int
+}
+
+// FormatPausedOutput returns the output string for paused state
+func FormatPausedOutput(config OutputConfig, pausedAt time.Duration) string {
+	switch config.Mode {
+	case ModeJSON:
+		output := WaybarOutput{
+			Text:      "Paused",
+			Tooltip:   "Click to start",
+			Class:     "paused",
+			Remaining: int(pausedAt.Seconds()),
+		}
+		jsonBytes, _ := json.Marshal(output)
+		return string(jsonBytes)
+	case ModeWatch:
+		return "PAUSED"
+	case ModeVerbose:
+		return fmt.Sprintf("\rPaused - %s remaining ", formatDuration(pausedAt))
+	default:
+		return ""
+	}
+}
+
+// FormatTickOutput returns the output string for a timer tick
+func FormatTickOutput(config OutputConfig, remaining time.Duration, intervalIndex int) string {
+	remainingSecs := int(remaining.Round(time.Second).Seconds())
+	switch config.Mode {
+	case ModeJSON:
+		var tooltip string
+		if config.IntervalCount == 1 {
+			tooltip = fmt.Sprintf("%dm %ds", config.MinutesList[0], config.SecondsList[0])
+		} else {
+			tooltip = fmt.Sprintf("Interval %d/%d: %dm %ds", intervalIndex+1, config.IntervalCount,
+				config.MinutesList[intervalIndex], config.SecondsList[intervalIndex])
+		}
+		output := WaybarOutput{
+			Text:      formatDuration(remaining),
+			Tooltip:   tooltip,
+			Class:     "counting",
+			Remaining: remainingSecs,
+		}
+		jsonBytes, _ := json.Marshal(output)
+		return string(jsonBytes)
+	case ModeWatch:
+		return formatDuration(remaining)
+	case ModeVerbose:
+		if config.IntervalCount == 1 {
+			return fmt.Sprintf("\rNext beep in: %s ", formatDuration(remaining))
+		}
+		return fmt.Sprintf("\rNext beep in: %s (interval %d/%d: %dm %ds) ",
+			formatDuration(remaining), intervalIndex+1, config.IntervalCount,
+			config.MinutesList[intervalIndex], config.SecondsList[intervalIndex])
+	default:
+		return ""
+	}
+}
+
+// FormatBeepOutput returns the output string for a beep event
+func FormatBeepOutput(config OutputConfig, beepCount int, beepType string, intervalIndex int, timestamp time.Time) string {
+	switch config.Mode {
+	case ModeJSON:
+		output := WaybarOutput{
+			Text:      "BEEP",
+			Tooltip:   fmt.Sprintf("Beep #%d (%s)", beepCount, beepType),
+			Class:     "beep",
+			Remaining: 0,
+		}
+		jsonBytes, _ := json.Marshal(output)
+		return string(jsonBytes)
+	case ModeWatch:
+		return "BEEP"
+	case ModeVerbose:
+		if config.IntervalCount == 1 {
+			return fmt.Sprintf("\r[%s] Beep #%d (%s)              \n", timestamp.Format("15:04:05"), beepCount, beepType)
+		}
+		return fmt.Sprintf("\r[%s] Beep #%d (%s) - next: %dm %ds     \n",
+			timestamp.Format("15:04:05"), beepCount, beepType,
+			config.MinutesList[intervalIndex], config.SecondsList[intervalIndex])
+	default:
+		return fmt.Sprintf("BEEP %s\n", timestamp.Format(time.RFC3339))
+	}
+}
+
+// FormatResetOutput returns the output string for a timer reset
+func FormatResetOutput(config OutputConfig, intervalIndex int, timestamp time.Time) string {
+	if config.Mode != ModeVerbose {
+		return ""
+	}
+	if config.IntervalCount == 1 {
+		return fmt.Sprintf("\r[%s] Timer reset (silent)              \n", timestamp.Format("15:04:05"))
+	}
+	return fmt.Sprintf("\r[%s] Timer reset (silent) - interval %d/%d: %dm %ds      \n",
+		timestamp.Format("15:04:05"), intervalIndex+1, config.IntervalCount,
+		config.MinutesList[intervalIndex], config.SecondsList[intervalIndex])
+}
+
+// padLists ensures both lists have the same length by padding the shorter one
+// with its last value. Returns the padded lists.
+func padLists(minutesList, secondsList []int) ([]int, []int) {
+	maxLen := len(minutesList)
+	if len(secondsList) > maxLen {
+		maxLen = len(secondsList)
+	}
+
+	// Create copies to avoid modifying original slices
+	minutes := make([]int, len(minutesList))
+	copy(minutes, minutesList)
+	seconds := make([]int, len(secondsList))
+	copy(seconds, secondsList)
+
+	// Pad shorter list with its last value
+	for len(minutes) < maxLen {
+		minutes = append(minutes, minutes[len(minutes)-1])
+	}
+	for len(seconds) < maxLen {
+		seconds = append(seconds, seconds[len(seconds)-1])
+	}
+
+	return minutes, seconds
+}
+
+// buildIntervals creates a list of time.Duration intervals from minutes and seconds lists.
+// Returns an error if any interval would be zero or negative.
+func buildIntervals(minutesList, secondsList []int) ([]time.Duration, error) {
+	minutes, seconds := padLists(minutesList, secondsList)
+
+	intervals := make([]time.Duration, len(minutes))
+	for i := 0; i < len(minutes); i++ {
+		totalSeconds := minutes[i]*60 + seconds[i]
+		if totalSeconds <= 0 {
+			return nil, fmt.Errorf("interval %d is %dm%ds (must be positive)", i+1, minutes[i], seconds[i])
+		}
+		intervals[i] = time.Duration(totalSeconds) * time.Second
+	}
+
+	return intervals, nil
+}
+
 func main() {
 	minutesStr := flag.String("m", "0", "interval in minutes (comma-separated for multiple intervals)")
 	secondsStr := flag.String("s", "0", "interval in seconds (comma-separated for multiple intervals)")
@@ -118,7 +364,14 @@ func main() {
 	jsonMode := flag.Bool("json", false, "JSON output for Waybar integration")
 	watchMode := flag.Bool("watch", false, "plain text countdown output")
 	startPaused := flag.Bool("paused", false, "start in paused state (send SIGUSR1 to toggle)")
+	showVersion := flag.Bool("version", false, "show version and exit")
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("go-interval version %s\n", version)
+		os.Exit(0)
+	}
 
 	// Validate flag combinations
 	if *jsonMode && *watchMode {
@@ -144,29 +397,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Make sure both lists have the same length
-	maxLen := len(minutesList)
-	if len(secondsList) > maxLen {
-		maxLen = len(secondsList)
-	}
+	// Pad lists to equal length and build intervals
+	minutesList, secondsList = padLists(minutesList, secondsList)
 
-	// Pad shorter list with its last value
-	for len(minutesList) < maxLen {
-		minutesList = append(minutesList, minutesList[len(minutesList)-1])
-	}
-	for len(secondsList) < maxLen {
-		secondsList = append(secondsList, secondsList[len(secondsList)-1])
-	}
-
-	// Create intervals list
-	intervals := make([]time.Duration, maxLen)
-	for i := 0; i < maxLen; i++ {
-		totalSeconds := minutesList[i]*60 + secondsList[i]
-		if totalSeconds <= 0 {
-			fmt.Fprintf(os.Stderr, "Error: All intervals must be positive (interval %d is %dm%ds)\n", i+1, minutesList[i], secondsList[i])
-			os.Exit(1)
-		}
-		intervals[i] = time.Duration(totalSeconds) * time.Second
+	intervals, err := buildIntervals(minutesList, secondsList)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Initialize audio system
