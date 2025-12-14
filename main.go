@@ -81,12 +81,6 @@ func playBeepImpl() {
 		for player.IsPlaying() {
 			time.Sleep(10 * time.Millisecond)
 		}
-
-		// Clean up
-		err = player.Close()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error closing player: %v\n", err)
-		}
 	}()
 }
 
@@ -444,9 +438,10 @@ func main() {
 				if err != nil {
 					continue
 				}
-				if b == '\n' {
+				switch b {
+				case '\n':
 					enterPressed <- true
-				} else if b == 127 || b == 8 { // 127 is DEL, 8 is backspace
+				case 127, 8: // 127 is DEL, 8 is backspace
 					backspacePressed <- true
 				}
 			}
